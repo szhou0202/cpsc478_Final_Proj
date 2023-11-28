@@ -33,11 +33,16 @@ Motion* motion;
 int windowWidth = 640;
 int windowHeight = 480;
 
-VEC3 eye(-6, 0.5, 1);
-VEC3 lookingAt(5, 0.5, 1);
+// !! which direction is forward and backward?
+// looking down positive x
+// to our right is positive z
+// up is positive y
+VEC3 eye(-4, 2, 4);
+VEC3 lookingAt; //(5, 0.5, 1);
 VEC3 up(0,1,0);
 
 // scene geometry
+// !! tracking scene geom
 vector<VEC3> sphereCenters;
 vector<float> sphereRadii;
 vector<VEC3> sphereColors;
@@ -69,6 +74,8 @@ void writePPM(const string& filename, int& xRes, int& yRes, const float* values)
 
 //////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////
+// !! probably should move this into a different file
+// that can contain a list of primitives
 bool raySphereIntersect(const VEC3& center, 
                         const float radius, 
                         const VEC3& rayPos, 
@@ -106,6 +113,9 @@ void rayColor(const VEC3& rayPos, const VEC3& rayDir, VEC3& pixelColor)
   // look for intersections
   int hitID = -1;
   float tMinFound = FLT_MAX;
+
+  // change so it is not just spheres, 
+  // but also triangles and cylinders
   for (int y = 0; y < sphereCenters.size(); y++)
   {
     float tMin = FLT_MAX;
@@ -147,7 +157,7 @@ void renderImage(int& xRes, int& yRes, const string& filename)
   float* ppmOut = new float[3 * totalCells];
 
   // compute image plane
-  // do camera motion
+  // do camera motion by changing lookingat
   const float halfY = (lookingAt - eye).norm() * tan(45.0f / 360.0f * M_PI);
   const float halfX = halfY * 4.0f / 3.0f;
 
@@ -167,7 +177,9 @@ void renderImage(int& xRes, int& yRes, const string& filename)
 
       // get the color
       VEC3 color;
-      rayColor(eye, rayDir, color);
+      rayColor(eye, rayDir, color); 
+      // ^ this is the function we need to change 
+      // for cylinder and triangle intersection
 
       // set, in final image
       ppmOut[3 * (y * xRes + x)] = clamp(color[0]) * 255.0f;
@@ -217,7 +229,13 @@ void buildScene()
   vector<MATRIX4>& rotations = displayer.rotations();
   vector<MATRIX4>& scalings  = displayer.scalings();
   vector<VEC4>& translations = displayer.translations();
-  vector<float>& lengths     = displayer.lengths();
+
+  // get the pelvis of the skeleton
+  // !! can also choose a different translations
+  // like translations[5] or something
+  lookingAt = VEC3(translations[1][0], translations[1][1], translations[1][2]);
+
+  vector<float>& lengths = displayer.lengths();
 
   // build a sphere list, but skip the first bone, 
   // it's just the origin
