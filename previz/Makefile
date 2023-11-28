@@ -1,6 +1,6 @@
 # calls:
 CC         = g++
-CFLAGS     = -c -O3
+CFLAGS     = -c -O3 -std=c++17
 LDFLAGS    = 
 EXECUTABLE = previz
 

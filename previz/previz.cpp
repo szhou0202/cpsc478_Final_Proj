@@ -22,6 +22,7 @@
 #include "skeleton.h"
 #include "displaySkeleton.h"
 #include "motion.h"
+#include "helpers.h"
 
 using namespace std;
 
@@ -33,7 +34,6 @@ Motion* motion;
 int windowWidth = 640;
 int windowHeight = 480;
 
-// !! which direction is forward and backward?
 // looking down positive x
 // to our right is positive z
 // up is positive y
@@ -42,10 +42,12 @@ VEC3 lookingAt; //(5, 0.5, 1);
 VEC3 up(0,1,0);
 
 // scene geometry
-// !! tracking scene geom
-vector<VEC3> sphereCenters;
-vector<float> sphereRadii;
-vector<VEC3> sphereColors;
+// replace with primitives 
+// vector<VEC3> sphereCenters;
+// vector<float> sphereRadii;
+// vector<VEC3> sphereColors;
+
+vector<Primitive*> primitives;
 
 //////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////
@@ -116,15 +118,22 @@ void rayColor(const VEC3& rayPos, const VEC3& rayDir, VEC3& pixelColor)
 
   // change so it is not just spheres, 
   // but also triangles and cylinders
-  for (int y = 0; y < sphereCenters.size(); y++)
+  for (int y = 0; y < primitives.size(); y++)
   {
     float tMin = FLT_MAX;
-    if (raySphereIntersect(sphereCenters[y], sphereRadii[y], rayPos, rayDir, tMin))
+
+    Primitive* p = primitives[y];
+    VEC3 a = rayPos;
+    VEC3 b = rayDir;
+    tMin = (float)p->findIntersect(a, b);
+
+    if (tMin > 0)
     { 
       // is the closest so far?
       if (tMin < tMinFound)
       {
         tMinFound = tMin;
+        pixelColor = p->color;
         hitID = y;
       }
     }
@@ -135,7 +144,7 @@ void rayColor(const VEC3& rayPos, const VEC3& rayDir, VEC3& pixelColor)
     return;
 
   // set to the sphere color
-  pixelColor = sphereColors[hitID];
+  // pixelColor = sphereColors[hitID];
 }
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -220,9 +229,8 @@ void setSkeletonsToSpecifiedFrame(int frameIndex)
 //////////////////////////////////////////////////////////////////////////////////
 void buildScene()
 {
-  sphereCenters.clear();
-  sphereRadii.clear();
-  sphereColors.clear();
+  primitives.clear();
+
   displayer.ComputeBonePositions(DisplaySkeleton::BONES_AND_LOCAL_FRAMES);
 
   // retrieve all the bones of the skeleton
@@ -263,22 +271,19 @@ void buildScene()
     const int totalSpheres = magnitude / (2.0 * sphereRadius);
     const float rayIncrement = magnitude / (float)totalSpheres;
 
-    // store the spheres
-    sphereCenters.push_back(leftVertex.head<3>());
-    sphereRadii.push_back(0.05);
-    sphereColors.push_back(VEC3(1,0,0));
-    
-    sphereCenters.push_back(rightVertex.head<3>());
-    sphereRadii.push_back(0.05);
-    sphereColors.push_back(VEC3(1,0,0));
     for (int y = 0; y < totalSpheres; y++)
     {
       VEC3 center = ((float)y + 0.5) * rayIncrement * direction + leftVertex.head<3>();
-      sphereCenters.push_back(center);
-      sphereRadii.push_back(0.05);
-      sphereColors.push_back(VEC3(1,0,0));
+
+      Sphere* sph = new Sphere(center, 0.05, VEC3(1,0,0));
+      primitives.push_back(sph);
     } 
   }
+
+  // populate primitives with big triangle
+  Triangle* tri = new Triangle(VEC3(100,0,100), VEC3(100,0,-100), VEC3(-200,0,0), VEC3(0,0,1));
+  primitives.push_back(tri);
+
 }
 
 //////////////////////////////////////////////////////////////////////////////////
