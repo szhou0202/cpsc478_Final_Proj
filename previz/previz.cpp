@@ -37,7 +37,7 @@ int windowHeight = 480;
 // looking down positive x
 // to our right is positive z
 // up is positive y
-VEC3 eye(-4, 2, 4);
+VEC3 eye(-3.5, 1, 3.5);
 VEC3 lookingAt; //(5, 0.5, 1);
 VEC3 up(0,1,0);
 
@@ -121,10 +121,11 @@ void rayColor(const VEC3& rayPos, const VEC3& rayDir, VEC3& pixelColor)
   for (int y = 0; y < primitives.size(); y++)
   {
     float tMin = FLT_MAX;
-
+    
     Primitive* p = primitives[y];
     VEC3 a = rayPos;
     VEC3 b = rayDir;
+
     tMin = (float)p->findIntersect(a, b);
 
     if (tMin > 0)
@@ -143,8 +144,6 @@ void rayColor(const VEC3& rayPos, const VEC3& rayDir, VEC3& pixelColor)
   if (hitID == -1)
     return;
 
-  // set to the sphere color
-  // pixelColor = sphereColors[hitID];
 }
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -261,6 +260,11 @@ void buildScene()
     leftVertex = rotation * scaling * leftVertex + translation;
     rightVertex = rotation * scaling * rightVertex + translation;
 
+    VEC3 lef = leftVertex.head<3>();
+    VEC3 rig = rightVertex.head<3>();
+    Cylinder* cyl = new Cylinder(lef, rig, 0.05, VEC3(1,0,0));
+    primitives.push_back(cyl);
+
     // get the direction vector
     VEC3 direction = (rightVertex - leftVertex).head<3>();
     const float magnitude = direction.norm();
@@ -275,8 +279,8 @@ void buildScene()
     {
       VEC3 center = ((float)y + 0.5) * rayIncrement * direction + leftVertex.head<3>();
 
-      Sphere* sph = new Sphere(center, 0.05, VEC3(1,0,0));
-      primitives.push_back(sph);
+      Sphere* sph = new Sphere(center, sphereRadius, VEC3(1,0,0));
+      // primitives.push_back(sph);
     } 
   }
 

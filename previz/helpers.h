@@ -202,35 +202,137 @@ public:
         normalize(toNorm);
         return toNorm;
     }
-
-
 };
 
 class Cylinder : public Primitive {
 public: 
-    VEC3 center = VEC3(0.,0.,0.);
+    // can define a cylinder via an endpoint, a ray, and a length
+    // the change of basis will be 
+    // the new basis in the old basis (just normal xyz)
+    // so
+    // [normalized cylinder ray, norm ray orthogonal to cylinder ray, norm ray orthogonal to the other two]
+    // to get the orthogonal rays, we can check which ones of (100), (010), and (001) can be validly dot producted with the cylinder ray, 
+    // e.g. the dot product is not 1 or -1, and take the cross of them (somewhat imprecise calculations with doubles haha)
+    // 
+    VEC3 top = VEC3(0.,0.,0.);
+    VEC3 bot = VEC3(0.,0.,0.);
+    VEC3 axi = VEC3(0.,0.,0.);
     double radius = 0.;
-    bool reflect = false; 
-    bool refract = false;
-    double refract_air;
-    double refract_glass;
+    double length = 0.;
 
-    Cylinder(VEC3 c, double r, VEC3 co) {
-
-    };
-    Cylinder(VEC3 c, double r, VEC3 co, bool ref, bool re, double r_a, double r_g) {
-        center = c;
-        radius = r;
+    Cylinder(VEC3 t, VEC3 b, double r, VEC3 co) {
         color = co;
-        reflect = ref;
-        refract = re;
-        refract_air = r_a;
-        refract_glass = r_g;
+        top = t; // origin of the cylinder
+        bot = b;
+        axi = b-t;
+        length = magnitude(axi);
+        normalize(axi);
+        radius = r;
     };
+
+    // note: the gaze passed here is not the ref point, 
+    // it is the vector from eye to the ref point
+    // MATRIX4 cam_mtx(VEC3 eye, VEC3 gaze, VEC3 top) {
+    //     MATRIX4 Mtemp;
+
+    //     VEC3 w = -1*gaze.normalized();///(gaze.norm()); /// !! could i j call normalize?
+    //     VEC3 temp = top.cross(w);
+    //     VEC3 u = temp.normalized();//temp/temp.norm();
+    //     VEC3 v = w.cross(u);
+
+    //     Mtemp.setZero();
+    //     Mtemp.block(0,0,3,1) = u;
+    //     Mtemp.block(0,1,3,1) = v;
+    //     Mtemp.block(0,2,3,1) = w;
+    //     Mtemp.block(0,3,3,1) = eye;
+    //     Mtemp(3,3) = 1.;
+
+    //     return Mtemp.inverse();
+    // }
 
     double findIntersect(VEC3 origin, VEC3 dir) {
-        // !! how in the world do i do cylinder intersection...
-        return 0.;
+
+        // FIRST, apply change of basis to the ray 
+        // find change of basis array, normalized vectors
+        // this is very similar to the MCAM matrix! 
+        VEC3 tem;
+        if (abs(axi.dot(VEC3(1,0,0))) != 1) {
+            tem = VEC3(1,0,0);
+        }
+        else {
+            tem = VEC3(0,0,1);
+        }
+        VEC3 u = axi.cross(tem);
+        normalize(u);
+        VEC3 v = axi.cross(u);
+        normalize(v);
+
+        MATRIX4 M;
+        M.setZero();
+        M.block(0,0,3,1) = u;
+        M.block(0,1,3,1) = axi;
+        M.block(0,2,3,1) = v;
+        M.block(0,3,3,1) = top; 
+        M(3,3) = 1.;
+        M = M.inverse().eval();
+
+        // VEC4 temp = VEC4(top[0]+axi[0], top[1]+axi[1], top[2]+axi[2], 1);
+
+        VEC4 nor1 = VEC4(origin[0], origin[1], origin[2], 1); 
+        VEC4 ndi1 = VEC4(dir[0], dir[1], dir[2], 1); 
+        // TO NOTE: we have to transform the vector from (0,0,0)
+        // for the ray direction, not the vector from the ray origin! 
+        // this is how matrix multiplication works! 
+        ndi1 = ndi1 + nor1 + VEC4(0,0,0,-1); 
+
+        nor1 = M*nor1;
+        ndi1 = M*ndi1;
+
+        VEC3 nor2 = nor1.head<3>(); 
+        VEC3 ndi2 = ndi1.head<3>(); 
+
+        // Since we transformed the full vector, we now need to retrieve the vector that 
+        // represents the ray direction
+        // notice this vector is still normalized since we applied 
+        // an orthographic transform, and the ray dir then was normalized
+        ndi2 = ndi2 - nor2;
+
+        // SECOND, solve for points of intersection with cylinder pointing up the y axis
+        // our equation is x^2 + z^2 = r^2
+        // (px + t vx)^2 + (pz + t vz)^2 = r^2
+        double a = ndi2[0]*ndi2[0] + ndi2[2]*ndi2[2];
+        double b = 2*(ndi2[0]*nor2[0] + nor2[2]*ndi2[2]);
+        double c = nor2[0]*nor2[0] + nor2[2]*nor2[2] - radius*radius;
+
+        double disc = b*b - 4*a*c;
+        if (disc < 0) {
+            return -1.;
+        }
+        if (disc == 0) {
+            return -1*b/(2*a);
+        }
+        double t1 = (-1*b + sqrt(disc))/(2*a);
+        double t2 = (-1*b - sqrt(disc))/(2*a);
+
+        VEC3 p1 = nor2 + t1*ndi2;
+        VEC3 p2 = nor2 + t2*ndi2;
+
+        if (t1 < t2) { // !! are these checks redundant??
+            if (p1[1] >= 0 && p1[1] <= length) {
+                return t1;
+            }
+            if (p2[1] >= 0 && p2[1] <= length) {
+                return t2;
+            }
+            return -1;
+        }
+        if (p2[1] >= 0 && p2[1] <= length) {
+            return t2;
+        }
+        if (p1[1] >= 0 && p1[1] <= length) {
+            return t1;
+        }
+        return -1;
     }
 
     // find coords of surface point
