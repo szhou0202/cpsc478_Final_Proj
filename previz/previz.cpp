@@ -42,12 +42,8 @@ VEC3 lookingAt; //(5, 0.5, 1);
 VEC3 up(0,1,0);
 
 // scene geometry
-// replace with primitives 
-// vector<VEC3> sphereCenters;
-// vector<float> sphereRadii;
-// vector<VEC3> sphereColors;
-
 vector<Primitive*> primitives;
+vector<Light*> lights;
 
 //////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////
@@ -74,43 +70,83 @@ void writePPM(const string& filename, int& xRes, int& yRes, const float* values)
   delete[] pixels;
 }
 
-//////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////
-// !! probably should move this into a different file
-// that can contain a list of primitives
-bool raySphereIntersect(const VEC3& center, 
-                        const float radius, 
-                        const VEC3& rayPos, 
-                        const VEC3& rayDir,
-                        float& t)
-{
-  const VEC3 op = center - rayPos;
-  const float eps = 1e-8;
-  const float b = op.dot(rayDir);
-  float det = b * b - op.dot(op) + radius * radius;
 
-  // determinant check
-  if (det < 0) 
-    return false; 
-  
-  det = sqrt(det);
-  t = b - det;
-  if (t <= eps)
-  {
-    t = b + det;
-    if (t <= eps)
-      t = -1;
+
+
+
+
+
+
+
+
+
+// returns a boolean array populated with shadow data
+// !!! why is this returning in shadow when behind the sphere?
+// need to cull when behind sphere
+
+// !!!! since we aren't culling shadows, all behind the person are shadows, and that 
+// is what is being displayed! this means our time t has to be correct when we return them from 
+// find intersect.
+// !!! the thing is, why isn't culling working for spheres??? 
+
+bool* findShadow(VEC3 origin) {
+  VEC3 p = origin;
+
+  bool* inShadow = new bool[lights.size()];
+  for (int n=0; n<lights.size(); n++) { // initing inShadow
+    inShadow[n]=false;
   }
 
-  if (t < 0) return false;
-  return true;
+  for (int n=0; n<primitives.size(); n++) { // begin for
+    VEC3 p_light;
+    Primitive* this_s=primitives[n];
+
+    for (int m=0;m<lights.size();m++) { // begin for
+      p_light = lights[m]->pos - p; // !!! can i just permute the light's position by a little bit, a uniform sampling, and check whether it intersects with any of these?
+      normalize(p_light);
+
+      double t = this_s->findIntersect(p, p_light);
+      if(t > 0 && magnitude(t*p_light) < magnitude(lights[m]->pos - p)) {
+        inShadow[m] = true;
+      } // endif
+    } // endfor
+  } // endfor
+
+  return inShadow;
 }
+
+
+
+
+
+
+
+
+// this function should change the layout of everything 
+// should populate the shadow array with the 
+bool inSoftShadow(VEC3 lightPos, VEC3 ourPoint) {
+  
+
+  return false;
+}
+
+
+
+
+
+
+
+
+
+
+
 
 //////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////
 void rayColor(const VEC3& rayPos, const VEC3& rayDir, VEC3& pixelColor) 
 {
-  pixelColor = VEC3(1,1,1);
+  // pixelColor = VEC3(1,1,1);
+  pixelColor = VEC3(0,0,0);
 
   // look for intersections
   int hitID = -1;
@@ -134,7 +170,26 @@ void rayColor(const VEC3& rayPos, const VEC3& rayDir, VEC3& pixelColor)
       if (tMin < tMinFound)
       {
         tMinFound = tMin;
-        pixelColor = p->color;
+        // pixelColor = p->color; // rayColor();
+        // !! not handling reflection right now
+
+        // coloring the surface
+        VEC3 surf_norm = p->findSurfNorm(rayPos, rayDir, tMin);
+        VEC3 surf_pos = p->findSurfPos(rayPos, rayDir, tMin);
+        VEC3 pt = rayPos + (tMin-0.001)*rayDir;
+
+        // checking if in shadow and coloring
+        // !!! why is my shadow being jank?
+        bool* inShadow = findShadow(pt);
+
+        pixelColor = VEC3(0,0,0);
+        for(int n=0;n<lights.size();n++) {
+          if(!inShadow[n]) {
+            pixelColor += lights[n]->totCol(p->color, surf_norm, surf_pos, eye);
+            // cout << "primitive " << y << endl;
+          }
+        }
+
         hitID = y;
       }
     }
@@ -186,8 +241,6 @@ void renderImage(int& xRes, int& yRes, const string& filename)
       // get the color
       VEC3 color;
       rayColor(eye, rayDir, color); 
-      // ^ this is the function we need to change 
-      // for cylinder and triangle intersection
 
       // set, in final image
       ppmOut[3 * (y * xRes + x)] = clamp(color[0]) * 255.0f;
@@ -247,6 +300,11 @@ void buildScene()
   // build a sphere list, but skip the first bone, 
   // it's just the origin
   int totalBones = rotations.size();
+  
+  
+  
+  
+   
   for (int x = 1; x < totalBones; x++)
   {
     MATRIX4& rotation = rotations[x];
@@ -262,32 +320,47 @@ void buildScene()
 
     VEC3 lef = leftVertex.head<3>();
     VEC3 rig = rightVertex.head<3>();
-    Cylinder* cyl = new Cylinder(lef, rig, 0.05, VEC3(1,0,0));
+
+    double sphereRad = .125; // !! changed! its like the thumb people
+
+    Cylinder* cyl = new Cylinder(lef, rig, sphereRad, VEC3(1,0,0));
+    Sphere* sph1 = new Sphere(lef, sphereRad, VEC3(1,0,0));
+    Sphere* sph2 = new Sphere(rig, sphereRad, VEC3(1,0,0));
+
     primitives.push_back(cyl);
-
-    // get the direction vector
-    VEC3 direction = (rightVertex - leftVertex).head<3>();
-    const float magnitude = direction.norm();
-    direction *= 1.0 / magnitude;
-
-    // how many spheres?
-    const float sphereRadius = 0.05;
-    const int totalSpheres = magnitude / (2.0 * sphereRadius);
-    const float rayIncrement = magnitude / (float)totalSpheres;
-
-    for (int y = 0; y < totalSpheres; y++)
-    {
-      VEC3 center = ((float)y + 0.5) * rayIncrement * direction + leftVertex.head<3>();
-
-      Sphere* sph = new Sphere(center, sphereRadius, VEC3(1,0,0));
-      // primitives.push_back(sph);
-    } 
+    primitives.push_back(sph1);
+    primitives.push_back(sph2);
   }
 
   // populate primitives with big triangle
+  // and big sphere
+  Triangle* tri = new Triangle(VEC3(100,0,100), VEC3(100,0,-100), VEC3(-200,0,0), VEC3(0,0,1));
+  Sphere* sph = new Sphere(VEC3(0.8,0,-1.0), 0.5, VEC3(0,1,0)); // i have been spending a lot of time trying to figure out the nice positioning for the sphere
+  primitives.push_back(tri);
+  primitives.push_back(sph);
+
+
+  // for locations in the scene 
+  // Sphere* xax = new Sphere(VEC3(1,0,0), 0.25, VEC3(1,0,0));
+  // Sphere* yax = new Sphere(VEC3(0,1,0), 0.25, VEC3(0,1,0));
+  // Sphere* zax = new Sphere(VEC3(0,0,1), 0.25, VEC3(0,0,1));
+  // primitives.push_back(xax);
+  // primitives.push_back(yax);
+  // primitives.push_back(zax);
+}
+
+
+
+// !!! function for debugging 
+void buildScene2() {
+  primitives.clear();
+
+  lookingAt = VEC3(0,0,0);
+
+  Cylinder* cyl = new Cylinder(VEC3(0,0,0), VEC3(0,1,0), 0.5, VEC3(0,1,0)); 
+  primitives.push_back(cyl);
   Triangle* tri = new Triangle(VEC3(100,0,100), VEC3(100,0,-100), VEC3(-200,0,0), VEC3(0,0,1));
   primitives.push_back(tri);
-
 }
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -296,9 +369,13 @@ int main(int argc, char** argv)
 {
   string skeletonFilename("14.asf");
   string motionFilename("14_30.amc");
-  //string skeletonFilename("02.asf");
-  //string motionFilename("02_05.amc");
-  
+
+  // add lights
+  Light* lit1 = new Light(VEC3(-4,4,-4), VEC3(1,1,1), 1, 10);
+  Light* lit2 = new Light(VEC3(4,4,4), VEC3(1,1,1), 1, 10);
+  lights.push_back(lit1);
+  lights.push_back(lit2);
+
   // load up skeleton stuff
   skeleton = new Skeleton(skeletonFilename.c_str(), MOCAP_SCALE);
   skeleton->setBasePosture();
@@ -318,6 +395,7 @@ int main(int argc, char** argv)
     // setSkeletonsToSpecifiedFrame(y);
     setSkeletonsToSpecifiedFrame(x);
     buildScene();
+    // buildScene2();
 
     char buffer[256];
     snprintf(buffer, 256, "./frames/frame.%04i.ppm", x / 8);

@@ -232,29 +232,7 @@ public:
 
     // note: the gaze passed here is not the ref point, 
     // it is the vector from eye to the ref point
-    // MATRIX4 cam_mtx(VEC3 eye, VEC3 gaze, VEC3 top) {
-    //     MATRIX4 Mtemp;
-
-    //     VEC3 w = -1*gaze.normalized();///(gaze.norm()); /// !! could i j call normalize?
-    //     VEC3 temp = top.cross(w);
-    //     VEC3 u = temp.normalized();//temp/temp.norm();
-    //     VEC3 v = w.cross(u);
-
-    //     Mtemp.setZero();
-    //     Mtemp.block(0,0,3,1) = u;
-    //     Mtemp.block(0,1,3,1) = v;
-    //     Mtemp.block(0,2,3,1) = w;
-    //     Mtemp.block(0,3,3,1) = eye;
-    //     Mtemp(3,3) = 1.;
-
-    //     return Mtemp.inverse();
-    // }
-
-    double findIntersect(VEC3 origin, VEC3 dir) {
-
-        // FIRST, apply change of basis to the ray 
-        // find change of basis array, normalized vectors
-        // this is very similar to the MCAM matrix! 
+    MATRIX4 create_M(VEC3 origin, VEC3 dir) {
         VEC3 tem;
         if (abs(axi.dot(VEC3(1,0,0))) != 1) {
             tem = VEC3(1,0,0);
@@ -276,7 +254,15 @@ public:
         M(3,3) = 1.;
         M = M.inverse().eval();
 
-        // VEC4 temp = VEC4(top[0]+axi[0], top[1]+axi[1], top[2]+axi[2], 1);
+        return M;
+    }
+
+    double findIntersect(VEC3 origin, VEC3 dir) {
+
+        // FIRST, apply change of basis to the ray 
+        // find change of basis array, normalized vectors
+        // this is very similar to the MCAM matrix! 
+        MATRIX4 M = create_M(origin, dir);
 
         VEC4 nor1 = VEC4(origin[0], origin[1], origin[2], 1); 
         VEC4 ndi1 = VEC4(dir[0], dir[1], dir[2], 1); 
@@ -285,10 +271,10 @@ public:
         // this is how matrix multiplication works! 
         ndi1 = ndi1 + nor1 + VEC4(0,0,0,-1); 
 
-        nor1 = M*nor1;
-        ndi1 = M*ndi1;
+        nor1 = M*nor1; // !!! too many functions defined for the same operator and operands * ?
+        ndi1 = M*ndi1; // !!! why? this was working before
 
-        VEC3 nor2 = nor1.head<3>(); 
+        VEC3 nor2 = nor1.head<3>();
         VEC3 ndi2 = ndi1.head<3>(); 
 
         // Since we transformed the full vector, we now need to retrieve the vector that 
@@ -316,7 +302,12 @@ public:
 
         VEC3 p1 = nor2 + t1*ndi2;
         VEC3 p2 = nor2 + t2*ndi2;
-
+        
+        // !!! we need to transform the time so that it lives in our original space
+        // so get intersection point in cyl space,
+        // transform it into original space,
+        // and solve for what time is needed for our original ray to hit the intersection point.
+        // !! i should prob create a ray object
         if (t1 < t2) { // !! are these checks redundant??
             if (p1[1] >= 0 && p1[1] <= length) {
                 return t1;
@@ -340,9 +331,38 @@ public:
         return eye + t*dir;
     }
 
-    // find norm at a point on sphere
-    VEC3 findSurfNorm(VEC3 eye, VEC3 dir, double t) {
-        return VEC3(0,0,0);
+    // find norm at a point on cylinder
+    VEC3 findSurfNorm(VEC3 eye, VEC3 dir, double t) { // !!! is eye same thing as origin?
+        // do the same transform as before?
+
+        // we just need to find the closest vector 
+        // from this point to the axis
+
+        // if we transform it, then it just becomes 
+        // (x,y,z) - (x,0,z) = (0,y,0)
+        // and finally transform (0,y,0) back and that is our normal
+
+        // so, i should probably modularize the matrix transform
+        
+        MATRIX4 M = create_M(eye, dir);
+        
+        // this should simply be the point of intersection
+        VEC4 ndi1 = VEC4(eye[0] + t*dir[0], eye[1] + t*dir[1], eye[2] + t*dir[2], 1); 
+
+        ndi1 = M*ndi1;
+        ndi1[3] = 1;
+
+        VEC4 nax3 = VEC4(0, ndi1[1], 0,1); // !!!! i was doing it correctly all along :sob:
+
+        // our norm
+        M = M.inverse().eval();
+        VEC3 nin4 = (M*ndi1).head<3>();
+        VEC3 nax4 = (M*nax3).head<3>();
+
+        VEC3 temp = nin4-nax4; // !!!! why was it being scaled by a factor of 0.5????
+        normalize(temp);
+        // cout << magnitude(temp) << endl;
+        return temp;
     }
 
     bool getReflect() {
@@ -383,8 +403,8 @@ public:
         VEC3 light_ray = pos-surf_position;
         normalize(light_ray);
         double temp = intensity*(0 >= surf_norm.dot(light_ray) ? 0 : surf_norm.dot(light_ray));
+        // cout << temp << endl;
         return temp*VEC3(color[0]*surf_color[0],color[1]*surf_color[1],color[2]*surf_color[2]);
-        // return temp;
     };
 
     // calculate specular lighting
@@ -402,14 +422,14 @@ public:
         // view ray
         double t = reflected_light.dot(view_ray);
         double temp = intensity*(0 >= t ? 0 : pow(t,phong));
+        // cout << temp << endl;
         return temp*VEC3(color[0]*surf_color[0],color[1]*surf_color[1],color[2]*surf_color[2]);
-        // return temp;
     };
 
+    // !! i should clean this code up :sob:
     VEC3 totCol(VEC3 surf_color, VEC3 surf_norm, VEC3 surf_position, VEC3 eye) {
         VEC3 dif = diffuseCol(surf_color, surf_norm, surf_position);
         VEC3 spec = specCol(surf_color, surf_norm, surf_position, eye);
-        // return (dif + spec)*(VEC3(color[0]*surf_color[0],color[1]*surf_color[1],color[2]*surf_color[2]));
         return dif+spec;
     };
 };
